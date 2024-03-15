@@ -5,18 +5,48 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from pathlib import Path
-from duckdb import DuckDBPyRelation
+from duckdb import DuckDBPyRelation, DuckDBPyConnection
 from sqlalchemy import create_engine
 from pandas import DataFrame
 from dotenv import load_dotenv
+from datetime import datetime
 
+
+# path = Path("gdown")
+
+# for f in path.glob("*"):
+#     print(f.name, f.suffix)
 
 load_dotenv()
 
-# Função para autenticar e criar um serviço do Google Drive
 token_info = ast.literal_eval(os.getenv("TOKEN"))
 
+def connect_db() -> DuckDBPyConnection:
+    """Conecta ao banco de dados DuckDB: cria o bando se não existir."""
+    return duckdb.connect(database="duckdb.db", read_only=False)
+
+def init_table(con: DuckDBPyConnection):
+    """Cria a tabela se ela não existir"""
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS historico_arquivos(
+                nome_arquivo VARCHAR,
+                horario_processamento TIMESTAMP
+    )
+""")
+    
+def insert_file(con:DuckDBPyConnection, filename:Path):
+    """Registra um novo arquivo no banco de dados com horário atual"""
+    con.execute("""
+    INSERT INTO historico_arquivos(nome_arquivo, horario_processamento)
+    VALUES (?, ?)
+""",(str(filename.name), datetime.now()))
+
+def processed_files(con:DuckDBPyConnection):
+    """Retorna um set com os nomes dos arquivos já processados"""
+    return set(row[0] for row in con.execute("SELECT nome_arquivo FROM historico_arquivos").fetchall())
+
 def create_drive_service():
+    """Função para autenticar e criar um serviço do Google Drive"""
     creds = Credentials.from_authorized_user_info(token_info) # Altere para o caminho do seu arquivo de credenciais
     service = build('drive', 'v3', credentials=creds)
     return service
@@ -98,17 +128,22 @@ def download_files_from_folder(folder_id, destination_folder):
         if page_token is None:
             break
 
-def read_csv(file_path):
-    dataframe_duckdb =  duckdb.read_csv(file_path)
-    print(dataframe_duckdb)
-    print(type(dataframe_duckdb))
-    return dataframe_duckdb
+def read_file(file_path:Path, file_type):
+    """Lê o arquivo de acordo com a sua extensão e retorna um dataframe"""
+    if file_type == ".csv":
+        return duckdb.read_csv(file_path)
+    elif file_type == ".json":
+        return duckdb.read_json(str(file_path))
+    elif file_type == ".parquet":
+        return duckdb.read_parquet(str(file_path))
+    else:
+        raise ValueError(f"Tipo do arquivo não suportado: {file_type}")
 def transnform(df) -> DataFrame:
     df_transf = duckdb.sql("SELECT *, quantidade * valor as total_vendas from df").df()
     return df_transf
 
-def list_csv_files(file_path) -> list[Path]:
-    return list(destination_folder.glob("*.csv"))
+def list_files(file_path) -> list[Path]:
+    return list(destination_folder.glob("*"))
 
 def save_to_postgres(df: DataFrame, table: str):
     DATABASE_URL = os.getenv("DATABASE_URL")
@@ -129,8 +164,19 @@ if __name__== "__main__":
 
     # Baixar os arquivos da pasta do Google Drive
     download_files_from_folder(folder_id, destination_folder)
-    # files = list_csv_files(destination_folder)
-    # df_duckdb = read_csv(files)
-    # pandas_df = transnform(df_duckdb)
-    # save_to_postgres(pandas_df, "vendas_calculado")
+
+    files = list_files(destination_folder)
+    con =connect_db()
+    init_table(con)
+    p_files = processed_files(con)
+
+    for file in  files:
+        if file.name not in p_files:
+            df_duckdb = read_file(file, file.suffix)
+            pandas_df = transnform(df_duckdb)
+            save_to_postgres(pandas_df, "vendas_calculado")
+            insert_file(con, file)
+            print(f"Arquivo {file} processado e salvo!")
+        else:
+            print(f"Arquivo {file} já foi processado anteriormente!")
 
