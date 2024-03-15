@@ -143,7 +143,7 @@ def transnform(df) -> DataFrame:
     return df_transf
 
 def list_files(file_path) -> list[Path]:
-    return list(destination_folder.glob("*"))
+    return list(file_path.glob("*"))
 
 def save_to_postgres(df: DataFrame, table: str):
     DATABASE_URL = os.getenv("DATABASE_URL")
@@ -151,7 +151,7 @@ def save_to_postgres(df: DataFrame, table: str):
     #Salvar no PostgreSQL
     df.to_sql(table, con=engine, if_exists='append', index=False)
 
-if __name__== "__main__":
+def pipeline():
 
     # Define a ID da pasta do Google Drive que você deseja baixar
     folder_id = '15WafqiRULmp-Iw38hLOBm44vXmQRJcKC'
@@ -170,6 +170,7 @@ if __name__== "__main__":
     init_table(con)
     p_files = processed_files(con)
 
+    logs = []
     for file in  files:
         if file.name not in p_files:
             df_duckdb = read_file(file, file.suffix)
@@ -177,6 +178,11 @@ if __name__== "__main__":
             save_to_postgres(pandas_df, "vendas_calculado")
             insert_file(con, file)
             print(f"Arquivo {file} processado e salvo!")
+            logs.append(f"Arquivo {file} processado e salvo!")
         else:
             print(f"Arquivo {file} já foi processado anteriormente!")
+            logs.append(f"Arquivo {file} já foi processado anteriormente!")
+    return logs
 
+if __name__=="__main__":
+    pipeline()
