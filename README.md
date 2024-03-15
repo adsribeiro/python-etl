@@ -1,1 +1,1 @@
-# python-etl
+# ETL com Python e Duckdb
