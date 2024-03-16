@@ -151,6 +151,14 @@ def save_to_postgres(df: DataFrame, table: str):
     #Salvar no PostgreSQL
     df.to_sql(table, con=engine, if_exists='append', index=False)
 
+def con_to_postgres():
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    engine = create_engine(DATABASE_URL)
+    return engine
+    # with engine.connect() as connection:
+    #     connection.execute(query)
+    
+
 def pipeline():
 
     # Define a ID da pasta do Google Drive que você deseja baixar
